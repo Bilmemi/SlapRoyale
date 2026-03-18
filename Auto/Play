@@ -1,22 +1,27 @@
+--[ OYUN YÜKLENME BEKLEYİCİSİ ]--
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local TeleportService = game:GetService("TeleportService")
 local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
 
--- PERSISTENCE (Otomatik Yeniden Yükleme)
+-- PERSISTENCE (Teleport Sonrası Otomatik Yükleme)
 if queue_on_teleport then
     queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/Linkiniz/script.lua"))()]])
 end
 
 local Settings = {
     HitboxSize = Vector3.new(10, 10, 10),
-    GameID = 9015014220,
-    AttackRange = 16,
+    MainLobbyID = 6403373529,    -- Slap Battles (Ana Menü)
+    MatchmakingID = 9426795465, -- Slap Royale Matchmaking
+    MapID = 9431156611,         -- Slap Royale (Savaş Alanı)
+    AttackRange = 14,           
     ReactionSpeed = 0.01,
-    StuckThreshold = 5
+    StuckThreshold = 3          -- Talebin üzerine 3 saniye yapıldı
 }
 
 local CurrentTarget = nil
@@ -24,51 +29,82 @@ local LastPos = Vector3.zero
 local StuckTime = 0
 local StrafeAngle = 0
 
--- Otomatik Eldiven Kuşanma ve Envanter Kontrolü
-local function equipAndCheck()
+--[ FONKSİYONLAR ]--
+
+-- FİZİKSEL TOKATLAMA (Tıklama Odaklı, Anti-Cheat Dostu)
+local function physicalSlap()
     local char = LocalPlayer.Character
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    
-    if char and bp then
-        local tool = bp:FindFirstChildOfClass("Tool")
-        if tool and not char:FindFirstChildOfClass("Tool") then
-            char.Humanoid:EquipTool(tool)
+    if char then
+        local tool = char:FindFirstChildOfClass("Tool")
+        if tool then
+            tool:Activate() 
         end
     end
-    
-    return (char and char:FindFirstChildOfClass("Tool")) or (bp and #bp:GetChildren() > 0)
 end
 
+-- Bot Hazırlık ve Otomatik Eldiven Kuşanma
+local function isBotReady()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then
+        return false
+    end
+    
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local tool = bp and bp:FindFirstChildOfClass("Tool") or char:FindFirstChildOfClass("Tool")
+    
+    if tool and not char:FindFirstChildOfClass("Tool") then
+        char.Humanoid:EquipTool(tool)
+    end
+    
+    return tool ~= nil
+end
+
+-- Otomatik Konum ve Lobi Kontrolü
 local function checkLocation()
-    if game.PlaceId ~= Settings.GameID then
-        TeleportService:Teleport(Settings.GameID, LocalPlayer)
+    local currentId = game.PlaceId
+    if currentId ~= Settings.MatchmakingID and currentId ~= Settings.MapID then
+        TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
     end
 end
 
+-- Kick / Bağlantı Hatası Durumunda Matchmaking'e Dön
+GuiService.ErrorMessageChanged:Connect(function()
+    task.wait(2)
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+end)
+
+-- Hitbox Güncelleme (Rakiplerin vuruş alanını genişletir)
 local function updateGlobalHitboxes()
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
             local hrp = p.Character.HumanoidRootPart
-            if hrp.Size ~= Settings.HitboxSize then
-                hrp.Size = Settings.HitboxSize
-                hrp.Transparency = 0.8
-                hrp.CanCollide = false
+            local hum = p.Character:FindFirstChild("Humanoid")
+            if hum and hum.Health > 0 then
+                if hrp.Size ~= Settings.HitboxSize then
+                    hrp.Size = Settings.HitboxSize
+                    hrp.Transparency = 0.8
+                    hrp.CanCollide = false
+                end
             end
         end
     end
 end
 
+-- En Yakın/En Mantıklı Hedef Seçimi
 local function getBestTarget()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
     
     local target, minScore = nil, 5000
+    local myPos = char.HumanoidRootPart.Position
+
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") then
             local enemyHrp = p.Character:FindFirstChild("HumanoidRootPart")
             if enemyHrp and p.Character.Humanoid.Health > 0 then
-                local dist = (enemyHrp.Position - char.HumanoidRootPart.Position).Magnitude
-                local score = (StuckTime > 3 and CurrentTarget and p.Character == CurrentTarget) and dist * 2 or dist
+                local dist = (enemyHrp.Position - myPos).Magnitude
+                -- 3 saniye takıldıysak hedefi zor ulaşılan olarak işaretle
+                local score = (StuckTime > 2 and CurrentTarget and p.Character == CurrentTarget) and dist * 2 or dist
                 if score < minScore then
                     minScore = score
                     target = p.Character
@@ -79,32 +115,77 @@ local function getBestTarget()
     return target
 end
 
--- Ana Operasyon Döngüsü
+--[ ANA DÖNGÜ ]--
+
 task.spawn(function()
     while task.wait(Settings.ReactionSpeed) do
-        -- Otomatik Kuşanma ve Hazırlık Kontrolü
-        if not equipAndCheck() then continue end
+        if not isBotReady() then continue end
         
         local char = LocalPlayer.Character
-        if not char or not char:FindFirstChild("Humanoid") then continue end
         local hum = char.Humanoid
         local root = char.HumanoidRootPart
+        local Camera = Workspace.CurrentCamera
 
         updateGlobalHitboxes()
         CurrentTarget = getBestTarget()
         
-        -- Engel Algılama (Raycast)
+        -- Raycast Engel Algılama ve Zıplama
         local rayRes = Workspace:Raycast(root.Position, root.CFrame.LookVector * 5)
         if rayRes and rayRes.Instance.CanCollide then hum.Jump = true end
 
-        -- Takılma Kontrolü (5s)
+        -- Stuck (3 Saniye) Mantığı
         if (root.Position - LastPos).Magnitude < 0.1 then
             StuckTime = StuckTime + Settings.ReactionSpeed
-            if StuckTime > Settings.StuckThreshold then hum.Jump = true StuckTime = 0 end
+            if StuckTime > Settings.StuckThreshold then 
+                hum.Jump = true 
+                StuckTime = 0 
+            end
         else
             StuckTime = 0
         end
         LastPos = root.Position
+
+        -- Rastgele Hareketler & Otobüs Kontrolü
+        if math.random(1, 200) == 1 then hum.Jump = true end
+        if Workspace:FindFirstChild("BusModel") then
+            local events = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+            if events and events:FindFirstChild("BusJump") then
+                events.BusJump:FireServer()
+            end
+        end
+
+        if CurrentTarget then
+            local tHrp = CurrentTarget.HumanoidRootPart
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, tHrp.Position)
+
+            -- Gelişmiş Strafe & Hareket
+            StrafeAngle = StrafeAngle + 0.08
+            local targetPos = tHrp.Position + Vector3.new(math.cos(StrafeAngle)*8, 0, math.sin(StrafeAngle)*8)
+            
+            -- Bakış Açısı Dodge
+            if tHrp.CFrame.LookVector:Dot((root.Position - tHrp.Position).Unit) > 0.75 then
+                targetPos = targetPos + (tHrp.CFrame.RightVector * 12)
+            end
+
+            -- FİZİKSEL TOKATLAMA
+            if (tHrp.Position - root.Position).Magnitude <= Settings.AttackRange then
+                physicalSlap()
+                if math.random(1,10) == 1 then hum.Jump = true end 
+            end
+            hum:MoveTo(targetPos)
+        end
+    end
+end)
+
+--[ MONITORING ]--
+task.spawn(function()
+    while task.wait(5) do
+        checkLocation()
+        if game.PlaceId == Settings.MapID and #Players:GetPlayers() <= 1 then
+            TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+        end
+    end
+end)        LastPos = root.Position
 
         -- Random Jump & Bus Jump
         if math.random(1, 200) == 1 then hum.Jump = true end
