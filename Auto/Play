@@ -1,0 +1,147 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
+local GuiService = game:GetService("GuiService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- PERSISTENCE (Otomatik Yeniden Yükleme)
+if queue_on_teleport then
+    queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/Linkiniz/script.lua"))()]])
+end
+
+local Settings = {
+    HitboxSize = Vector3.new(10, 10, 10),
+    GameID = 9015014220,
+    AttackRange = 16,
+    ReactionSpeed = 0.01,
+    StuckThreshold = 5
+}
+
+local CurrentTarget = nil
+local LastPos = Vector3.zero
+local StuckTime = 0
+local StrafeAngle = 0
+
+-- Otomatik Eldiven Kuşanma ve Envanter Kontrolü
+local function equipAndCheck()
+    local char = LocalPlayer.Character
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    
+    if char and bp then
+        local tool = bp:FindFirstChildOfClass("Tool")
+        if tool and not char:FindFirstChildOfClass("Tool") then
+            char.Humanoid:EquipTool(tool)
+        end
+    end
+    
+    return (char and char:FindFirstChildOfClass("Tool")) or (bp and #bp:GetChildren() > 0)
+end
+
+local function checkLocation()
+    if game.PlaceId ~= Settings.GameID then
+        TeleportService:Teleport(Settings.GameID, LocalPlayer)
+    end
+end
+
+local function updateGlobalHitboxes()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = p.Character.HumanoidRootPart
+            if hrp.Size ~= Settings.HitboxSize then
+                hrp.Size = Settings.HitboxSize
+                hrp.Transparency = 0.8
+                hrp.CanCollide = false
+            end
+        end
+    end
+end
+
+local function getBestTarget()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    
+    local target, minScore = nil, 5000
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") then
+            local enemyHrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if enemyHrp and p.Character.Humanoid.Health > 0 then
+                local dist = (enemyHrp.Position - char.HumanoidRootPart.Position).Magnitude
+                local score = (StuckTime > 3 and CurrentTarget and p.Character == CurrentTarget) and dist * 2 or dist
+                if score < minScore then
+                    minScore = score
+                    target = p.Character
+                end
+            end
+        end
+    end
+    return target
+end
+
+-- Ana Operasyon Döngüsü
+task.spawn(function()
+    while task.wait(Settings.ReactionSpeed) do
+        -- Otomatik Kuşanma ve Hazırlık Kontrolü
+        if not equipAndCheck() then continue end
+        
+        local char = LocalPlayer.Character
+        if not char or not char:FindFirstChild("Humanoid") then continue end
+        local hum = char.Humanoid
+        local root = char.HumanoidRootPart
+
+        updateGlobalHitboxes()
+        CurrentTarget = getBestTarget()
+        
+        -- Engel Algılama (Raycast)
+        local rayRes = Workspace:Raycast(root.Position, root.CFrame.LookVector * 5)
+        if rayRes and rayRes.Instance.CanCollide then hum.Jump = true end
+
+        -- Takılma Kontrolü (5s)
+        if (root.Position - LastPos).Magnitude < 0.1 then
+            StuckTime = StuckTime + Settings.ReactionSpeed
+            if StuckTime > Settings.StuckThreshold then hum.Jump = true StuckTime = 0 end
+        else
+            StuckTime = 0
+        end
+        LastPos = root.Position
+
+        -- Random Jump & Bus Jump
+        if math.random(1, 200) == 1 then hum.Jump = true end
+        if Workspace:FindFirstChild("BusModel") then
+            game:GetService("ReplicatedStorage").Events.BusJump:FireServer()
+        end
+
+        if CurrentTarget then
+            local tHrp = CurrentTarget.HumanoidRootPart
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, tHrp.Position)
+
+            -- Strafe & Dodge Mantığı
+            StrafeAngle = StrafeAngle + 0.08
+            local targetPos = tHrp.Position + Vector3.new(math.cos(StrafeAngle)*7, 0, math.sin(StrafeAngle)*7)
+            
+            if tHrp.CFrame.LookVector:Dot((root.Position - tHrp.Position).Unit) > 0.75 then
+                targetPos = targetPos + (tHrp.CFrame.RightVector * 12)
+            end
+
+            -- Saldırı
+            if (tHrp.Position - root.Position).Magnitude <= Settings.AttackRange then
+                game:GetService("ReplicatedStorage").Events.Slap:FireServer(tHrp)
+            end
+            hum:MoveTo(targetPos)
+        end
+    end
+end)
+
+-- Lobi ve Hata Kontrolleri
+task.spawn(function()
+    while task.wait(2) do
+        checkLocation()
+        if #Players:GetPlayers() <= 1 then checkLocation() end
+    end
+end)
+
+GuiService.ErrorMessageChanged:Connect(function()
+    task.wait(1)
+    checkLocation()
+end)
