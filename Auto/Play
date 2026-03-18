@@ -11,7 +11,7 @@ local LocalPlayer = Players.LocalPlayer
 
 -- PERSISTENCE (Teleport Sonrası Otomatik Yükleme)
 if queue_on_teleport then
-    queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/Linkiniz/script.lua"))()]])
+    queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"))()]])
 end
 
 local Settings = {
