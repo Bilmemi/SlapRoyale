@@ -4,7 +4,6 @@ local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 local GroupID = 6409334 
@@ -37,6 +36,17 @@ end
 Players.PlayerAdded:Connect(checkStaff)
 for _, p in ipairs(Players:GetPlayers()) do checkStaff(p) end
 
+local function autoLand(root)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local result = Workspace:Raycast(root.Position, Vector3.new(0, -2000, 0), raycastParams)
+    if result and result.Instance then
+        root.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
+    end
+end
+
 local function getBestTarget()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
@@ -67,26 +77,24 @@ local function mainLoop()
 
     local currentTool = char:FindFirstChildOfClass("Tool")
     if not currentTool then
-        local toolInBackpack = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-        if toolInBackpack then
-            hum:EquipTool(toolInBackpack)
+        local backpackTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if backpackTool and not backpackTool.Name:lower():find("glider") then
+            hum:EquipTool(backpackTool)
         end
     end
 
-    if not char:FindFirstChildOfClass("Tool") then return end
+    local activeTool = char:FindFirstChildOfClass("Tool")
+    if not activeTool or activeTool.Name:lower():find("glider") then return end
+
+    if root.Position.Y > 50 then
+        autoLand(root)
+    end
 
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
             p.Character.HumanoidRootPart.Size = Settings.HitboxSize
             p.Character.HumanoidRootPart.CanCollide = false
         end
-    end
-
-    local bus = Workspace:FindFirstChild("Bus") or Workspace:FindFirstChild("BusModel")
-    if bus then
-        local ev = ReplicatedStorage:FindFirstChild("Events")
-        local jump = ev and (ev:FindFirstChild("BusJump") or ev:FindFirstChild("Jump"))
-        if jump then jump:FireServer() end
     end
 
     if (root.Position - LastPosition).Magnitude < 0.3 then
@@ -105,6 +113,31 @@ local function mainLoop()
         root.CFrame = CFrame.lookAt(root.Position, Vector3.new(tRoot.Position.X, root.Position.Y, tRoot.Position.Z))
         
         StrafeAngle = StrafeAngle + 0.12
+        local offset = Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7)
+        hum:MoveTo(tRoot.Position + offset)
+
+        if dist <= Settings.AttackRange then
+            activeTool:Activate()
+        end
+    end
+end
+
+GuiService.ErrorMessageChanged:Connect(function()
+    task.wait(2)
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+end)
+
+if game.PlaceId ~= Settings.MatchmakingID and game.PlaceId ~= Settings.MapID then
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+end
+
+task.spawn(function()
+    while task.wait(Settings.PollRate) do
+        pcall(mainLoop)
+    end
+end)
+
+print("Slap Royale Auto-Play Active")        StrafeAngle = StrafeAngle + 0.12
         local movePos = (dist > 10) and tRoot.Position or (tRoot.Position + Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7))
         hum:MoveTo(movePos)
 
