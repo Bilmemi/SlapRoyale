@@ -10,6 +10,7 @@ local GroupID = 6409334
 local LastPosition = Vector3.zero
 local StuckTimer = 0
 local StrafeAngle = 0
+local FallingTimer = 0
 
 local Settings = {
     HitboxSize = Vector3.new(10, 10, 10),
@@ -21,9 +22,16 @@ local Settings = {
     ScriptURL = "https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"
 }
 
-if typeof(queue_on_teleport) == "function" then
-    queue_on_teleport(string.format([[loadstring(game:HttpGet("%s"))()]], Settings.ScriptURL))
+local function autoLoad()
+    local scriptContent = 'loadstring(game:HttpGet("' .. Settings.ScriptURL .. '"))()'
+    if syn and syn.queue_on_teleport then
+        syn.queue_on_teleport(scriptContent)
+    elseif queue_on_teleport then
+        queue_on_teleport(scriptContent)
+    end
 end
+
+autoLoad()
 
 local function checkStaff(player)
     if player == LocalPlayer then return end
@@ -36,30 +44,26 @@ end
 Players.PlayerAdded:Connect(checkStaff)
 for _, p in ipairs(Players:GetPlayers()) do checkStaff(p) end
 
-local function autoLand(root)
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-
-    local result = Workspace:Raycast(root.Position, Vector3.new(0, -2000, 0), raycastParams)
-    if result and result.Instance then
-        root.CFrame = CFrame.new(result.Position + Vector3.new(0, 3, 0))
-    end
-end
-
 local function getBestTarget()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
 
     local target, minDistance = nil, math.huge
+    local myPos = char.HumanoidRootPart.Position
+
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") then
+            local enemyHum = p.Character.Humanoid
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-            if hrp and p.Character.Humanoid.Health > 0 then
-                local dist = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
-                if dist < minDistance then
-                    minDistance = dist
-                    target = p.Character
+            
+            if hrp and enemyHum.Health > 0 then
+                local state = enemyHum:GetState()
+                if state ~= Enum.HumanoidStateType.Freefall and hrp.Velocity.Y < 5 then
+                    local dist = (hrp.Position - myPos).Magnitude
+                    if dist < minDistance then
+                        minDistance = dist
+                        target = p.Character
+                    end
                 end
             end
         end
@@ -73,21 +77,37 @@ local function mainLoop()
     
     local hum = char:FindFirstChildOfClass("Humanoid")
     local root = char:FindFirstChild("HumanoidRootPart")
+    local ragdollVal = char:FindFirstChild("Ragdolled")
+    
     if not hum or not root or hum.Health <= 0 then return end
 
     local currentTool = char:FindFirstChildOfClass("Tool")
     if not currentTool then
-        local backpackTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-        if backpackTool and not backpackTool.Name:lower():find("glider") then
-            hum:EquipTool(backpackTool)
+        local bpTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if bpTool then
+            hum:EquipTool(bpTool)
         end
     end
 
     local activeTool = char:FindFirstChildOfClass("Tool")
-    if not activeTool or activeTool.Name:lower():find("glider") then return end
+    if not activeTool then 
+        Workspace.Gravity = 196.2
+        return 
+    end
 
-    if root.Position.Y > 50 then
-        autoLand(root)
+    local isRagdolled = ragdollVal and ragdollVal.Value == true
+    local isFreefall = (hum:GetState() == Enum.HumanoidStateType.Freefall or root.Velocity.Y < -5)
+
+    if isFreefall then
+        FallingTimer = FallingTimer + Settings.PollRate
+    else
+        FallingTimer = 0
+    end
+
+    if isRagdolled or FallingTimer > 1.5 then
+        Workspace.Gravity = 1000
+    else
+        Workspace.Gravity = 196.2
     end
 
     for _, p in ipairs(Players:GetPlayers()) do
@@ -97,7 +117,7 @@ local function mainLoop()
         end
     end
 
-    if (root.Position - LastPosition).Magnitude < 0.3 then
+    if (root.Position - LastPosition).Magnitude < 0.2 then
         StuckTimer = StuckTimer + Settings.PollRate
         if StuckTimer >= Settings.StuckThreshold then hum.Jump = true StuckTimer = 0 end
     else
@@ -110,7 +130,8 @@ local function mainLoop()
         local tRoot = target.HumanoidRootPart
         local dist = (tRoot.Position - root.Position).Magnitude
 
-        root.CFrame = CFrame.lookAt(root.Position, Vector3.new(tRoot.Position.X, root.Position.Y, tRoot.Position.Z))
+        local targetDir = Vector3.new(tRoot.Position.X, root.Position.Y, tRoot.Position.Z)
+        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, targetDir), 0.3)
         
         StrafeAngle = StrafeAngle + 0.12
         local offset = Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7)
@@ -118,31 +139,6 @@ local function mainLoop()
 
         if dist <= Settings.AttackRange then
             activeTool:Activate()
-        end
-    end
-end
-
-GuiService.ErrorMessageChanged:Connect(function()
-    task.wait(2)
-    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
-end)
-
-if game.PlaceId ~= Settings.MatchmakingID and game.PlaceId ~= Settings.MapID then
-    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
-end
-
-task.spawn(function()
-    while task.wait(Settings.PollRate) do
-        pcall(mainLoop)
-    end
-end)
-
-print("Slap Royale Auto-Play Active")        StrafeAngle = StrafeAngle + 0.12
-        local movePos = (dist > 10) and tRoot.Position or (tRoot.Position + Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7))
-        hum:MoveTo(movePos)
-
-        if dist <= Settings.AttackRange then
-            char:FindFirstChildOfClass("Tool"):Activate()
         end
     end
 end
