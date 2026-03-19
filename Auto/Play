@@ -12,9 +12,11 @@ local StuckTimer = 0
 local StrafeAngle = 0
 local FallingTimer = 0
 local JumpTimer = 0
+local lastAttack = 0 
 
 local Settings = {
-    HitboxSize = Vector3.new(15, 15, 15), -- Hitbox size 15 yapıldı
+    HitboxSize = Vector3.new(15, 15, 15), 
+    AttackRange = 20, 
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
@@ -120,7 +122,9 @@ local function mainLoop()
     JumpTimer = JumpTimer + Settings.PollRate
     if JumpTimer >= 1 then
         JumpTimer = 0
-        if math.random(1, 100) <= 50 then hum.Jump = true end
+        if math.random(1, 100) <= 50 then
+            hum.Jump = true
+        end
     end
 
     local currentTool = char:FindFirstChildOfClass("Tool")
@@ -149,31 +153,29 @@ local function mainLoop()
     if target and target:FindFirstChild("HumanoidRootPart") then
         local tr = target.HumanoidRootPart
         local dist = (tr.Position - root.Position).Magnitude
-        local hSize = Settings.HitboxSize.X / 2
+        local hSize = Settings.HitboxSize.X / 2 
 
         root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
         
-        StrafeAngle = StrafeAngle + 0.08
+        StrafeAngle = StrafeAngle + 0.05
         local strafePos = tr.Position + Vector3.new(math.cos(StrafeAngle) * hSize, 0, math.sin(StrafeAngle) * hSize)
         
-        -- Mesafe mantığı: Hitbox kadar yaklaş, içindeyse uzaklaş
-        if dist > hSize then
+        if dist > (hSize + 1) then
             hum:MoveTo(strafePos)
-        elseif dist < (hSize - 2) then
-            local awayPos = root.Position + (root.Position - tr.Position).Unit * 5
-            hum:MoveTo(awayPos)
+        elseif dist < (hSize - 1) then
+            hum:MoveTo(root.Position + (root.Position - tr.Position).Unit * 5)
         else
-            hum:MoveTo(root.Position)
+            hum:MoveTo(strafePos)
         end
-
-        -- Dokunma (Touch) kontrolü ile atak
+        
         local touching = false
-        for _, part in ipairs(root:GetTouchingParts()) do
-            if part == tr then touching = true break end
+        for _, p in ipairs(root:GetTouchingParts()) do
+            if p == tr then touching = true break end
         end
 
-        if touching then
+        if touching and (tick() - lastAttack) > 0.25 then
             activeTool:Activate()
+            lastAttack = tick()
         end
     end
 end
