@@ -7,14 +7,10 @@ local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local LastPosition = Vector3.zero
-local StuckTimer = 0
-local StrafeAngle = 0
-local FallingTimer = 0
-local JumpTimer = 0
+local StuckTimer, StrafeAngle, FallingTimer, JumpTimer = 0, 0, 0, 0
 
 local Settings = {
     HitboxSize = Vector3.new(15, 15, 15),
-    TouchDistance = 8.5,
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
@@ -123,13 +119,9 @@ local function mainLoop()
         if math.random(1, 100) <= 50 then hum.Jump = true end
     end
 
-    local currentTool = char:FindFirstChildOfClass("Tool")
-    if not currentTool then
-        local bpt = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-        if bpt then hum:EquipTool(bpt) end
-    end
+    local activeTool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+    if activeTool and activeTool.Parent ~= char then hum:EquipTool(activeTool) end
 
-    local activeTool = char:FindFirstChildOfClass("Tool")
     if not activeTool or activeTool.Name:lower():find("glider") then 
         Workspace.Gravity = 196.2
         return 
@@ -146,21 +138,21 @@ local function mainLoop()
     LastPosition = root.Position
 
     local target = getBestTarget()
-    if target then
-        local tr = target:FindFirstChild("HumanoidRootPart")
-        if tr then
-            local dist = (tr.Position - root.Position).Magnitude
-            root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
-            
-            if dist <= Settings.TouchDistance then
-                activeTool:Activate()
-                
-                StrafeAngle = StrafeAngle + 0.08
-                local strafePos = tr.Position + Vector3.new(math.cos(StrafeAngle) * 10, 0, math.sin(StrafeAngle) * 10)
-                hum:MoveTo(strafePos)
-            else
-                hum:MoveTo(tr.Position)
-            end
+    if target and target:FindFirstChild("HumanoidRootPart") then
+        local tr = target.HumanoidRootPart
+        local dist = (tr.Position - root.Position).Magnitude
+        local triggerDist = 7.5 
+
+        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
+
+        if dist > triggerDist then
+            hum:MoveTo(tr.Position)
+        else
+            activeTool:Activate()
+            StrafeAngle = StrafeAngle + 0.1
+            local retreatDir = (root.Position - tr.Position).Unit * 15
+            local strafeOffset = Vector3.new(math.cos(StrafeAngle) * 8, 0, math.sin(StrafeAngle) * 8)
+            hum:MoveTo(tr.Position + retreatDir + strafeOffset)
         end
     end
 end
