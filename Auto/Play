@@ -1,48 +1,52 @@
---// Slap Royale: Professional Auto-Play
 if not game:IsLoaded() then game.Loaded:Wait() end
 
---// Services
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
---// Variables
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
+local GroupID = 6409334 
 local LastPosition = Vector3.zero
 local StuckTimer = 0
 local StrafeAngle = 0
 
---// Configuration
 local Settings = {
-    HitboxSize = Vector3.new(8, 8, 8),
-    AttackRange = 12,
-    StuckThreshold = 2,
+    HitboxSize = Vector3.new(10, 10, 10),
+    AttackRange = 14,
+    StuckThreshold = 2.5,
     PollRate = 0.05,
-    LobbyID = 9426795465,
+    MatchmakingID = 9426795465,
+    MapID = 9431156611,
     ScriptURL = "https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"
 }
 
---// Teleport Persistence
 if typeof(queue_on_teleport) == "function" then
     queue_on_teleport(string.format([[loadstring(game:HttpGet("%s"))()]], Settings.ScriptURL))
 end
 
---// Core Functions
+local function checkStaff(player)
+    if player == LocalPlayer then return end
+    local success, rank = pcall(function() return player:GetRankInGroup(GroupID) end)
+    if success and rank >= 10 then
+        TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+    end
+end
+
+Players.PlayerAdded:Connect(checkStaff)
+for _, p in ipairs(Players:GetPlayers()) do checkStaff(p) end
+
 local function getBestTarget()
-    local character = LocalPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
 
     local target, minDistance = nil, math.huge
-    local myPos = character.HumanoidRootPart.Position
-
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") then
-            local root = p.Character:FindFirstChild("HumanoidRootPart")
-            if root and p.Character.Humanoid.Health > 0 then
-                local dist = (root.Position - myPos).Magnitude
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and p.Character.Humanoid.Health > 0 then
+                local dist = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
                 if dist < minDistance then
                     minDistance = dist
                     target = p.Character
@@ -53,181 +57,76 @@ local function getBestTarget()
     return target
 end
 
-local function handleActions(char)
+local function mainLoop()
+    local char = LocalPlayer.Character
+    if not char then return end
+    
     local hum = char:FindFirstChildOfClass("Humanoid")
     local root = char:FindFirstChild("HumanoidRootPart")
-    if not hum or not root then return end
+    if not hum or not root or hum.Health <= 0 then return end
 
-    -- Tool Management
-    local tool = char:FindFirstChildOfClass("Tool") or LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-    if tool and tool.Parent ~= char then hum:EquipTool(tool) end
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if not currentTool then
+        local toolInBackpack = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if toolInBackpack then
+            hum:EquipTool(toolInBackpack)
+        end
+    end
 
-    -- Hitbox & Visuals (Optimized)
+    if not char:FindFirstChildOfClass("Tool") then return end
+
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            local eRoot = p.Character.HumanoidRootPart
-            if eRoot.Size ~= Settings.HitboxSize then
-                eRoot.Size = Settings.HitboxSize
-                eRoot.Transparency = 0.7
-                eRoot.CanCollide = false
-            end
+            p.Character.HumanoidRootPart.Size = Settings.HitboxSize
+            p.Character.HumanoidRootPart.CanCollide = false
         end
     end
 
-    -- Bus Autojump
     local bus = Workspace:FindFirstChild("Bus") or Workspace:FindFirstChild("BusModel")
     if bus then
-        local event = ReplicatedStorage:FindFirstChild("Events") and (ReplicatedStorage.Events:FindFirstChild("BusJump") or ReplicatedStorage.Events:FindFirstChild("Jump"))
-        if event then event:FireServer() end
+        local ev = ReplicatedStorage:FindFirstChild("Events")
+        local jump = ev and (ev:FindFirstChild("BusJump") or ev:FindFirstChild("Jump"))
+        if jump then jump:FireServer() end
     end
 
-    -- Movement & Target Logic
-    local target = getBestTarget()
-    if target then
-        local tRoot = target.HumanoidRootPart
-        local dist = (tRoot.Position - root.Position).Magnitude
-
-        -- Aim & Look
-        root.CFrame = CFrame.lookAt(root.Position, Vector3.new(tRoot.Position.X, root.Position.Y, tRoot.Position.Z))
-        
-        -- Strafe & Approach
-        StrafeAngle = StrafeAngle + 0.15
-        local offset = Vector3.new(math.cos(StrafeAngle) * 8, 0, math.sin(StrafeAngle) * 8)
-        hum:MoveTo(tRoot.Position + offset)
-
-        -- Attack
-        if dist <= Settings.AttackRange and tool then
-            tool:Activate()
-            if math.random() > 0.85 then hum.Jump = true end
-        end
-    end
-
-    -- Anti-Stuck
     if (root.Position - LastPosition).Magnitude < 0.3 then
         StuckTimer = StuckTimer + Settings.PollRate
-        if StuckTimer >= Settings.StuckThreshold then
-            hum.Jump = true
-            StuckTimer = 0
-        end
+        if StuckTimer >= Settings.StuckThreshold then hum.Jump = true StuckTimer = 0 end
     else
         StuckTimer = 0
     end
     LastPosition = root.Position
-end
 
---// Loops & Events
-GuiService.ErrorMessageChanged:Connect(function()
-    task.wait(2)
-    TeleportService:Teleport(Settings.LobbyID, LocalPlayer)
-end)
-
-task.spawn(function()
-    while task.wait(Settings.PollRate) do
-        local char = LocalPlayer.Character
-        if char then handleActions(char) end
-    end
-end)
-
-print("Slap Royale Auto-Play: Initialized")            end
-        end
-
-        
-        local bus = Workspace:FindFirstChild("Bus") or Workspace:FindFirstChild("BusModel")
-        if bus then
-            local jumpEvent = ReplicatedStorage:FindFirstChild("Events") and (ReplicatedStorage.Events:FindFirstChild("BusJump") or ReplicatedStorage.Events:FindFirstChild("Jump"))
-            if jumpEvent then jumpEvent:FireServer() end
-        end
-
-        
-        if (root.Position - LastPosition).Magnitude < 0.5 then
-            StuckTimer = StuckTimer + Settings.ReactionSpeed
-            if StuckTimer >= Settings.StuckThreshold then
-                hum.Jump = true
-                StuckTimer = 0
-            end
-        else
-            StuckTimer = 0
-        end
-        LastPosition = root.Position
-
-        
-        local target = getBestTarget()
-        if target and target:FindFirstChild("HumanoidRootPart") then
-            local tHrp = target.HumanoidRootPart
-            local dist = (tHrp.Position - root.Position).Magnitude
-
-            
-            local targetLookPos = Vector3.new(tHrp.Position.X, root.Position.Y, tHrp.Position.Z)
-            root.CFrame = CFrame.lookAt(root.Position, targetLookPos)
-
-            
-            StrafeAngle = StrafeAngle + 0.1
-            local moveOffset = Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7)
-            hum:MoveTo(tHrp.Position + moveOffset)
-
-            
-            if dist <= Settings.AttackRange then
-                currentTool:Activate()
-                if math.random(1, 8) == 1 then hum.Jump = true end
-            end
-        end
-    end
-end)
-
-
-task.spawn(function()
-    while task.wait(5) do
-        if game.PlaceId == Settings.MapID and #Players:GetPlayers() <= 1 then
-            teleportToMatchmaking()
-        end
-    end
-end)            local ev = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
-            local jump = ev and ev:FindFirstChild("BusJump")
-            if jump then jump:FireServer() end
-    end
-
-    applyHitbox()
-    equipEverything()
-    
-    local target = getGlobalTarget()
-
-    
-    if (root.Position - LastPos).Magnitude < 0.2 then
-        StuckTime = StuckTime + task.wait()
-        if StuckTime > Settings.StuckThreshold then
-            hum.Jump = true
-            StuckTime = 0
-        end
-    else
-        StuckTime = 0
-    end
-    LastPos = root.Position
-
-    
-    if target then
+    local target = getBestTarget()
+    if target and target:FindFirstChild("HumanoidRootPart") then
         local tRoot = target.HumanoidRootPart
-        local distance = (tRoot.Position - root.Position).Magnitude
-        
-        
-        Workspace.CurrentCamera.CFrame = CFrame.new(Workspace.CurrentCamera.CFrame.Position, tRoot.Position)
+        local dist = (tRoot.Position - root.Position).Magnitude
 
+        root.CFrame = CFrame.lookAt(root.Position, Vector3.new(tRoot.Position.X, root.Position.Y, tRoot.Position.Z))
         
-        if distance > Settings.AttackRange then
-            hum:MoveTo(tRoot.Position) -- Mesafe ne olursa olsun direkt üstüne koş
-        else
-            
-            StrafeAngle = StrafeAngle + 0.1
-            local offset = Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7)
-            hum:MoveTo(tRoot.Position + offset)
-            
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool then tool:Activate() end
+        StrafeAngle = StrafeAngle + 0.12
+        local movePos = (dist > 10) and tRoot.Position or (tRoot.Position + Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7))
+        hum:MoveTo(movePos)
+
+        if dist <= Settings.AttackRange then
+            char:FindFirstChildOfClass("Tool"):Activate()
         end
     end
-end)
-
+end
 
 GuiService.ErrorMessageChanged:Connect(function()
     task.wait(2)
     TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
 end)
+
+if game.PlaceId ~= Settings.MatchmakingID and game.PlaceId ~= Settings.MapID then
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+end
+
+task.spawn(function()
+    while task.wait(Settings.PollRate) do
+        pcall(mainLoop)
+    end
+end)
+
+print("Slap Royale Auto-Play Active")
