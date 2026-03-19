@@ -13,8 +13,8 @@ local StrafeAngle = 0
 local FallingTimer = 0
 
 local Settings = {
-    HitboxSize = Vector3.new(10, 10, 10),
-    AttackRange = 14,
+    HitboxSize = Vector3.new(8, 8, 8),
+    AttackRange = 12,
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
@@ -39,26 +39,20 @@ end
 local function bypassAntiCheat()
     local mt = getrawmetatable(game)
     local oldIndex = mt.__index
-    local oldNewIndex = mt.__newindex
     setreadonly(mt, false)
 
     mt.__index = newcclosure(function(t, k)
-        if checkcaller() then return oldIndex(t, k) end
-        if t:IsA("Humanoid") then
-            if k == "WalkSpeed" then return 16 end
-            if k == "JumpPower" or k == "JumpHeight" then return 50 end
-        elseif t:IsA("Workspace") and k == "Gravity" then
-            return 196.2
+        if not checkcaller() then
+            if t:IsA("Humanoid") then
+                if k == "WalkSpeed" then return 16 end
+                if k == "JumpPower" or k == "JumpHeight" then return 50 end
+            elseif t:IsA("Workspace") and k == "Gravity" then
+                return 196.2
+            end
         end
         return oldIndex(t, k)
     end)
 
-    mt.__newindex = newcclosure(function(t, k, v)
-        if not checkcaller() and t:IsA("Humanoid") then
-            if k == "WalkSpeed" or k == "JumpPower" or k == "JumpHeight" then return end
-        end
-        return oldNewIndex(t, k, v)
-    end)
     setreadonly(mt, true)
 end
 
@@ -98,6 +92,8 @@ local function mainLoop()
     local rv = char:FindFirstChild("Ragdolled")
     if not hum or not root or hum.Health <= 0 then return end
 
+    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+
     local currentTool = char:FindFirstChildOfClass("Tool")
     if not currentTool then
         local bpt = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
@@ -129,9 +125,9 @@ local function mainLoop()
     local target = getBestTarget()
     if target and target:FindFirstChild("HumanoidRootPart") then
         local tr = target.HumanoidRootPart
-        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.3)
-        StrafeAngle = StrafeAngle + 0.12
-        hum:MoveTo(tr.Position + Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7))
+        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
+        StrafeAngle = StrafeAngle + 0.08
+        hum:MoveTo(tr.Position + Vector3.new(math.cos(StrafeAngle) * 8, 0, math.sin(StrafeAngle) * 8))
         if (tr.Position - root.Position).Magnitude <= Settings.AttackRange then activeTool:Activate() end
     end
 end
