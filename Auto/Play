@@ -14,7 +14,7 @@ local FallingTimer = 0
 
 local Settings = {
     HitboxSize = Vector3.new(8, 8, 8),
-    AttackRange = 12,
+    AttackRange = 14,
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
@@ -40,7 +40,6 @@ local function bypassAntiCheat()
     local mt = getrawmetatable(game)
     local oldIndex = mt.__index
     setreadonly(mt, false)
-
     mt.__index = newcclosure(function(t, k)
         if not checkcaller() then
             if t:IsA("Humanoid") then
@@ -52,20 +51,13 @@ local function bypassAntiCheat()
         end
         return oldIndex(t, k)
     end)
-
     setreadonly(mt, true)
 end
 
 local function autoLoad()
-    local scriptContent = 'loadstring(game:HttpGet("' .. Settings.ScriptURL .. '"))()'
-    if syn and syn.queue_on_teleport then syn.queue_on_teleport(scriptContent)
-    elseif queue_on_teleport then queue_on_teleport(scriptContent) end
-end
-
-local function checkStaff(player)
-    if player == LocalPlayer then return end
-    local s, r = pcall(function() return player:GetRankInGroup(GroupID) end)
-    if s and r >= 10 then TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer) end
+    local sc = 'loadstring(game:HttpGet("' .. Settings.ScriptURL .. '"))()'
+    if syn and syn.queue_on_teleport then syn.queue_on_teleport(sc)
+    elseif queue_on_teleport then queue_on_teleport(sc) end
 end
 
 local function getBestTarget()
@@ -76,9 +68,12 @@ local function getBestTarget()
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") then
             local eh = p.Character.Humanoid
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-            if hrp and eh.Health > 0 and eh:GetState() ~= Enum.HumanoidStateType.Freefall and hrp.Velocity.Y < 5 then
-                local d = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
-                if d < minDistance then minDistance, target = d, p.Character end
+            if hrp and eh.Health > 0 then
+                local state = eh:GetState()
+                if state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.Jumping or hrp.Velocity.Y > 5 or hrp.Velocity.Y < -5 then
+                    local d = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
+                    if d < minDistance then minDistance, target = d, p.Character end
+                end
             end
         end
     end
@@ -128,6 +123,9 @@ local function mainLoop()
         root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
         StrafeAngle = StrafeAngle + 0.08
         hum:MoveTo(tr.Position + Vector3.new(math.cos(StrafeAngle) * 8, 0, math.sin(StrafeAngle) * 8))
+        
+        task.wait(0.3)
+
         if (tr.Position - root.Position).Magnitude <= Settings.AttackRange then activeTool:Activate() end
     end
 end
@@ -135,8 +133,6 @@ end
 autoLoad()
 bypassAntiCheat()
 setupEnvironment()
-Players.PlayerAdded:Connect(checkStaff)
-for _, p in ipairs(Players:GetPlayers()) do checkStaff(p) end
 
 GuiService.ErrorMessageChanged:Connect(function()
     task.wait(2)
