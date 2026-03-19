@@ -118,6 +118,10 @@ local function getBestTarget()
 end
 
 local function mainLoop()
+    if game.PlaceId == Settings.MatchmakingID then
+        return
+    end
+
     local char = LocalPlayer.Character
     if not char then return end
     local hum, root = char:FindFirstChildOfClass("Humanoid"), char:FindFirstChild("HumanoidRootPart")
@@ -165,6 +169,10 @@ GuiService.ErrorMessageChanged:Connect(function()
     task.wait(2)
     TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
 end)
+
+if game.PlaceId ~= Settings.MapID then
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+end
 
 task.spawn(function()
     while task.wait(Settings.PollRate) do pcall(mainLoop) end
