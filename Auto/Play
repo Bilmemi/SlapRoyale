@@ -52,6 +52,60 @@ local function bypassAntiCheat()
         return oldIndex(t, k)
     end)
     setreadonly(mt, true)
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local GuiService = game:GetService("GuiService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local GroupID = 6409334 
+local LastPosition = Vector3.zero
+local StuckTimer = 0
+local StrafeAngle = 0
+local FallingTimer = 0
+
+local Settings = {
+    HitboxSize = Vector3.new(10, 10, 10),
+    AttackRange = 14,
+    StuckThreshold = 2.5,
+    PollRate = 0.05,
+    MatchmakingID = 9426795465,
+    MapID = 9431156611,
+    ScriptURL = "https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"
+}
+
+local function setupEnvironment()
+    local al = Instance.new("Part", Workspace)
+    al.Name = "AntiLava"
+    al.Position = Vector3.new(-238, -43, 401)
+    al.Size = Vector3.new(150, 30, 150)
+    al.Anchored, al.Transparency, al.CanCollide = true, 1, false
+
+    local aa = Instance.new("Part", al)
+    aa.Name = "AntiAcid"
+    aa.Position = Vector3.new(-70, -20, -725)
+    aa.Size = Vector3.new(155, 35, 144)
+    aa.Anchored, aa.Transparency, aa.CanCollide = true, 1, false
+end
+
+local function bypassAntiCheat()
+    local mt = getrawmetatable(game)
+    local oldIndex = mt.__index
+    setreadonly(mt, false)
+    mt.__index = newcclosure(function(t, k)
+        if not checkcaller() then
+            if t:IsA("Humanoid") then
+                if k == "WalkSpeed" then return 16 end
+                if k == "JumpPower" or k == "JumpHeight" then return 50 end
+            elseif t:IsA("Workspace") and k == "Gravity" then
+                return 196.2
+            end
+        end
+        return oldIndex(t, k)
+    end)
+    setreadonly(mt, true)
 end
 
 local function autoLoad()
@@ -75,6 +129,17 @@ end
 if LocalPlayer.Character then setupCharacter(LocalPlayer.Character) end
 LocalPlayer.CharacterAdded:Connect(setupCharacter)
 
+local function applyHitbox(targetChar)
+    local hrp = targetChar:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        hrp.Size = Settings.HitboxSize
+        hrp.Transparency = 0.7
+        hrp.Color = Color3.new(0, 0, 0)
+        hrp.Material = Enum.Material.Neon
+        hrp.CanCollide = false
+    end
+end
+
 local function getBestTarget()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
@@ -84,8 +149,8 @@ local function getBestTarget()
             local eh = p.Character.Humanoid
             local hrp = p.Character:FindFirstChild("HumanoidRootPart")
             if hrp and eh.Health > 0 then
+                applyHitbox(p.Character)
                 local state = eh:GetState()
-                -- SADECE YERDEKİLER: Havada olanları targetlemez
                 if state ~= Enum.HumanoidStateType.Freefall and state ~= Enum.HumanoidStateType.Jumping and hrp.Velocity.Y < 5 and hrp.Velocity.Y > -5 then
                     local d = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
                     if d < minDistance then minDistance, target = d, p.Character end
@@ -120,12 +185,6 @@ local function mainLoop()
     local ir, ifall = (rv and rv.Value == true), (hum:GetState() == Enum.HumanoidStateType.Freefall or root.Velocity.Y < -5)
     FallingTimer = ifall and (FallingTimer + Settings.PollRate) or 0
     Workspace.Gravity = (ir or FallingTimer > 1.5) and 1000 or 196.2
-
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.Size, p.Character.HumanoidRootPart.CanCollide = Settings.HitboxSize, false
-        end
-    end
 
     if (root.Position - LastPosition).Magnitude < 0.2 then
         StuckTimer = StuckTimer + Settings.PollRate
