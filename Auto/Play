@@ -122,7 +122,7 @@ local function mainLoop()
     JumpTimer = JumpTimer + Settings.PollRate
     if JumpTimer >= 1 then
         JumpTimer = 0
-        if math.random(1, 100) <= 50 then
+        if math.random(1, 100) <= 40 then
             hum.Jump = true
         end
     end
@@ -155,25 +155,28 @@ local function mainLoop()
         local dist = (tr.Position - root.Position).Magnitude
         local hSize = Settings.HitboxSize.X / 2 
 
-        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
+        local lookTarget = Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)
+        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, lookTarget), 0.05)
         
-        StrafeAngle = StrafeAngle + 0.05
-        local strafePos = tr.Position + Vector3.new(math.cos(StrafeAngle) * hSize, 0, math.sin(StrafeAngle) * hSize)
+        StrafeAngle = StrafeAngle + 0.02
+        local strafeOffset = Vector3.new(math.cos(StrafeAngle) * (hSize * 0.5), 0, math.sin(StrafeAngle) * (hSize * 0.5))
+        local targetPos = tr.Position + strafeOffset
         
         if dist > (hSize + 1) then
-            hum:MoveTo(strafePos)
-        elseif dist < (hSize - 1) then
-            hum:MoveTo(root.Position + (root.Position - tr.Position).Unit * 5)
+            hum:MoveTo(targetPos)
+        elseif dist < (hSize - 1.5) then
+            hum:MoveTo(root.Position + (root.Position - tr.Position).Unit * 4)
         else
-            hum:MoveTo(strafePos)
+            hum:MoveTo(root.Position)
         end
         
         local touching = false
-        for _, p in ipairs(root:GetTouchingParts()) do
-            if p == tr then touching = true break end
+        local parts = root:GetTouchingParts()
+        for i = 1, #parts do
+            if parts[i] == tr then touching = true break end
         end
 
-        if touching and (tick() - lastAttack) > 0.25 then
+        if touching and (tick() - lastAttack) > 0.35 then
             activeTool:Activate()
             lastAttack = tick()
         end
