@@ -14,61 +14,7 @@ local FallingTimer = 0
 
 local Settings = {
     HitboxSize = Vector3.new(10, 10, 10),
-    AttackRange = 14,
-    StuckThreshold = 2.5,
-    PollRate = 0.05,
-    MatchmakingID = 9426795465,
-    MapID = 9431156611,
-    ScriptURL = "https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"
-}
-
-local function setupEnvironment()
-    local al = Instance.new("Part", Workspace)
-    al.Name = "AntiLava"
-    al.Position = Vector3.new(-238, -43, 401)
-    al.Size = Vector3.new(150, 30, 150)
-    al.Anchored, al.Transparency, al.CanCollide = true, 1, false
-
-    local aa = Instance.new("Part", al)
-    aa.Name = "AntiAcid"
-    aa.Position = Vector3.new(-70, -20, -725)
-    aa.Size = Vector3.new(155, 35, 144)
-    aa.Anchored, aa.Transparency, aa.CanCollide = true, 1, false
-end
-
-local function bypassAntiCheat()
-    local mt = getrawmetatable(game)
-    local oldIndex = mt.__index
-    setreadonly(mt, false)
-    mt.__index = newcclosure(function(t, k)
-        if not checkcaller() then
-            if t:IsA("Humanoid") then
-                if k == "WalkSpeed" then return 16 end
-                if k == "JumpPower" or k == "JumpHeight" then return 50 end
-            elseif t:IsA("Workspace") and k == "Gravity" then
-                return 196.2
-            end
-        end
-        return oldIndex(t, k)
-    end)
-    setreadonly(mt, true)
-if not game:IsLoaded() then game.Loaded:Wait() end
-
-local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
-local GuiService = game:GetService("GuiService")
-local Workspace = game:GetService("Workspace")
-
-local LocalPlayer = Players.LocalPlayer
-local GroupID = 6409334 
-local LastPosition = Vector3.zero
-local StuckTimer = 0
-local StrafeAngle = 0
-local FallingTimer = 0
-
-local Settings = {
-    HitboxSize = Vector3.new(10, 10, 10),
-    AttackRange = 14,
+    AttackRange = 30,
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
@@ -109,7 +55,7 @@ local function bypassAntiCheat()
 end
 
 local function autoLoad()
-    local sc = 'loadstring(game:HttpGet("' .. Settings.ScriptURL .. '"))()'
+    local sc = 'repeat task.wait() until game:IsLoaded(); loadstring(game:HttpGet("' .. Settings.ScriptURL .. '"))()'
     if syn and syn.queue_on_teleport then syn.queue_on_teleport(sc)
     elseif queue_on_teleport then queue_on_teleport(sc) end
 end
@@ -137,6 +83,7 @@ local function applyHitbox(targetChar)
         hrp.Color = Color3.new(0, 0, 0)
         hrp.Material = Enum.Material.Neon
         hrp.CanCollide = false
+        hrp.CanTouch = true
     end
 end
 
@@ -209,7 +156,10 @@ local function mainLoop()
         end
         
         task.wait(0.3)
-        if dist <= Settings.AttackRange then activeTool:Activate() end
+
+        if dist <= Settings.AttackRange then
+            activeTool:Activate()
+        end
     end
 end
 
