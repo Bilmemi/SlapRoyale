@@ -1,112 +1,79 @@
---[ OYUN YÜKLENME BEKLEYİCİSİ ]--
-if not game:IsLoaded() then
-    game.Loaded:Wait()
+--[ OYUN YÜKLENME KONTROLÜ ]--
+if not game:IsLoaded() then 
+    game.Loaded:Wait() 
 end
+print("autoplay") -- Oyun yüklendiği an konsola basar.
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- PERSISTENCE (Teleport Sonrası Otomatik Yükleme)
+-- PERSISTENCE (Işınlanma Koruması)
 if queue_on_teleport then
     queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"))()]])
 end
 
 local Settings = {
-    HitboxSize = Vector3.new(10, 10, 10),
-    MainLobbyID = 6403373529,    -- Slap Battles (Ana Menü)
-    MatchmakingID = 9426795465, -- Slap Royale Matchmaking
-    MapID = 9431156611,         -- Slap Royale (Savaş Alanı)
-    AttackRange = 14,           
-    ReactionSpeed = 0.01,
-    StuckThreshold = 3          -- Talebin üzerine 3 saniye yapıldı
+    HitboxSize = Vector3.new(8, 8, 8),
+    MatchmakingID = 9426795465, 
+    MapID = 9431156611,         
+    AttackRange = 12,
+    StuckThreshold = 3
 }
 
-local CurrentTarget = nil
 local LastPos = Vector3.zero
 local StuckTime = 0
 local StrafeAngle = 0
 
 --[ FONKSİYONLAR ]--
 
--- FİZİKSEL TOKATLAMA (Tıklama Odaklı, Anti-Cheat Dostu)
-local function physicalSlap()
+-- Her şeyi kuşanma (Tool/Handle Garantili)
+local function equipEverything()
     local char = LocalPlayer.Character
-    if char then
-        local tool = char:FindFirstChildOfClass("Tool")
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    if not char:FindFirstChildOfClass("Tool") then
+        local tool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
         if tool then
-            tool:Activate() 
+            hum:EquipTool(tool)
         end
     end
 end
 
--- Bot Hazırlık ve Otomatik Eldiven Kuşanma
-local function isBotReady()
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then
-        return false
-    end
-    
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    local tool = bp and bp:FindFirstChildOfClass("Tool") or char:FindFirstChildOfClass("Tool")
-    
-    if tool and not char:FindFirstChildOfClass("Tool") then
-        char.Humanoid:EquipTool(tool)
-    end
-    
-    return tool ~= nil
-end
-
--- Otomatik Konum ve Lobi Kontrolü
-local function checkLocation()
-    local currentId = game.PlaceId
-    if currentId ~= Settings.MatchmakingID and currentId ~= Settings.MapID then
-        TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
-    end
-end
-
--- Kick / Bağlantı Hatası Durumunda Matchmaking'e Dön
-GuiService.ErrorMessageChanged:Connect(function()
-    task.wait(2)
-    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
-end)
-
--- Hitbox Güncelleme (Rakiplerin vuruş alanını genişletir)
-local function updateGlobalHitboxes()
+-- Agresif Hitbox Sistemi
+local function applyHitbox()
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            local hrp = p.Character.HumanoidRootPart
+        if p ~= LocalPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
             local hum = p.Character:FindFirstChild("Humanoid")
-            if hum and hum.Health > 0 then
-                if hrp.Size ~= Settings.HitboxSize then
-                    hrp.Size = Settings.HitboxSize
-                    hrp.Transparency = 0.8
-                    hrp.CanCollide = false
-                end
+            if hrp and hum and hum.Health > 0 then
+                hrp.Size = Settings.HitboxSize
+                hrp.Transparency = 0.7
+                hrp.CanCollide = false
+                hrp.Massless = true
             end
         end
     end
 end
 
--- En Yakın/En Mantıklı Hedef Seçimi
-local function getBestTarget()
+-- Global Hedef Bulucu (Mesafe Sınırı Yok)
+local function getGlobalTarget()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
     
-    local target, minScore = nil, 5000
-    local myPos = char.HumanoidRootPart.Position
-
+    local target, minDistance = nil, math.huge
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") then
-            local enemyHrp = p.Character:FindFirstChild("HumanoidRootPart")
-            if enemyHrp and p.Character.Humanoid.Health > 0 then
-                local dist = (enemyHrp.Position - myPos).Magnitude
-                -- 3 saniye takıldıysak hedefi zor ulaşılan olarak işaretle
-                local score = (StuckTime > 2 and CurrentTarget and p.Character == CurrentTarget) and dist * 2 or dist
-                if score < minScore then
-                    minScore = score
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and p.Character.Humanoid.Health > 0 then
+                local dist = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
+                if dist < minDistance then
+                    minDistance = dist
                     target = p.Character
                 end
             end
@@ -117,112 +84,70 @@ end
 
 --[ ANA DÖNGÜ ]--
 
-task.spawn(function()
-    while task.wait(Settings.ReactionSpeed) do
-        if not isBotReady() then continue end
-        
-        local char = LocalPlayer.Character
-        local hum = char.Humanoid
-        local root = char.HumanoidRootPart
-        local Camera = Workspace.CurrentCamera
+RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then return end
+    
+    local root = char.HumanoidRootPart
+    local hum = char.Humanoid
+    
+    -- Ölüm ve Konum Kontrolü
+    if hum.Health <= 0 or (game.PlaceId ~= Settings.MatchmakingID and game.PlaceId ~= Settings.MapID) then
+        TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+        return
+    end
 
-        updateGlobalHitboxes()
-        CurrentTarget = getBestTarget()
-        
-        -- Raycast Engel Algılama ve Zıplama
-        local rayRes = Workspace:Raycast(root.Position, root.CFrame.LookVector * 5)
-        if rayRes and rayRes.Instance.CanCollide then hum.Jump = true end
+    -- Otobüs Atlayışı
+    for _, obj in pairs(Workspace:GetChildren()) do
+        if obj.Name:lower():find("bus") then
+            local ev = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+            local jump = ev and ev:FindFirstChild("BusJump")
+            if jump then jump:FireServer() end
+        end
+    end
 
-        -- Stuck (3 Saniye) Mantığı
-        if (root.Position - LastPos).Magnitude < 0.1 then
-            StuckTime = StuckTime + Settings.ReactionSpeed
-            if StuckTime > Settings.StuckThreshold then 
-                hum.Jump = true 
-                StuckTime = 0 
-            end
-        else
+    applyHitbox()
+    equipEverything()
+    
+    local target = getGlobalTarget()
+
+    -- Anti-Stuck (3s)
+    if (root.Position - LastPos).Magnitude < 0.2 then
+        StuckTime = StuckTime + task.wait()
+        if StuckTime > Settings.StuckThreshold then
+            hum.Jump = true
             StuckTime = 0
         end
-        LastPos = root.Position
+    else
+        StuckTime = 0
+    end
+    LastPos = root.Position
 
-        -- Rastgele Hareketler & Otobüs Kontrolü
-        if math.random(1, 200) == 1 then hum.Jump = true end
-        if Workspace:FindFirstChild("BusModel") then
-            local events = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
-            if events and events:FindFirstChild("BusJump") then
-                events.BusJump:FireServer()
-            end
-        end
+    -- Hedef Takibi ve Saldırı
+    if target then
+        local tRoot = target.HumanoidRootPart
+        local distance = (tRoot.Position - root.Position).Magnitude
+        
+        -- Aimbot Kamera
+        Workspace.CurrentCamera.CFrame = CFrame.new(Workspace.CurrentCamera.CFrame.Position, tRoot.Position)
 
-        if CurrentTarget then
-            local tHrp = CurrentTarget.HumanoidRootPart
-            Camera.CFrame = CFrame.new(Camera.CFrame.Position, tHrp.Position)
-
-            -- Gelişmiş Strafe & Hareket
-            StrafeAngle = StrafeAngle + 0.08
-            local targetPos = tHrp.Position + Vector3.new(math.cos(StrafeAngle)*8, 0, math.sin(StrafeAngle)*8)
+        -- KOŞ VE SALDIR
+        if distance > Settings.AttackRange then
+            hum:MoveTo(tRoot.Position) -- Mesafe ne olursa olsun direkt üstüne koş
+        else
+            -- Menzil içindeyse (12 birim) Strafe yaparak saldır
+            StrafeAngle = StrafeAngle + 0.1
+            local offset = Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7)
+            hum:MoveTo(tRoot.Position + offset)
             
-            -- Bakış Açısı Dodge
-            if tHrp.CFrame.LookVector:Dot((root.Position - tHrp.Position).Unit) > 0.75 then
-                targetPos = targetPos + (tHrp.CFrame.RightVector * 12)
-            end
-
-            -- FİZİKSEL TOKATLAMA
-            if (tHrp.Position - root.Position).Magnitude <= Settings.AttackRange then
-                physicalSlap()
-                if math.random(1,10) == 1 then hum.Jump = true end 
-            end
-            hum:MoveTo(targetPos)
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool then tool:Activate() end
         end
     end
 end)
 
---[ MONITORING ]--
-task.spawn(function()
-    while task.wait(5) do
-        checkLocation()
-        if game.PlaceId == Settings.MapID and #Players:GetPlayers() <= 1 then
-            TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
-        end
-    end
-end)        LastPos = root.Position
-
-        -- Random Jump & Bus Jump
-        if math.random(1, 200) == 1 then hum.Jump = true end
-        if Workspace:FindFirstChild("BusModel") then
-            game:GetService("ReplicatedStorage").Events.BusJump:FireServer()
-        end
-
-        if CurrentTarget then
-            local tHrp = CurrentTarget.HumanoidRootPart
-            Camera.CFrame = CFrame.new(Camera.CFrame.Position, tHrp.Position)
-
-            -- Strafe & Dodge Mantığı
-            StrafeAngle = StrafeAngle + 0.08
-            local targetPos = tHrp.Position + Vector3.new(math.cos(StrafeAngle)*7, 0, math.sin(StrafeAngle)*7)
-            
-            if tHrp.CFrame.LookVector:Dot((root.Position - tHrp.Position).Unit) > 0.75 then
-                targetPos = targetPos + (tHrp.CFrame.RightVector * 12)
-            end
-
-            -- Saldırı
-            if (tHrp.Position - root.Position).Magnitude <= Settings.AttackRange then
-                game:GetService("ReplicatedStorage").Events.Slap:FireServer(tHrp)
-            end
-            hum:MoveTo(targetPos)
-        end
-    end
-end)
-
--- Lobi ve Hata Kontrolleri
-task.spawn(function()
-    while task.wait(2) do
-        checkLocation()
-        if #Players:GetPlayers() <= 1 then checkLocation() end
-    end
-end)
-
+-- Bağlantı Hatası Koruması
 GuiService.ErrorMessageChanged:Connect(function()
-    task.wait(1)
-    checkLocation()
+    task.wait(2)
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
 end)
