@@ -160,7 +160,6 @@ task.spawn(function()
 end)            local ev = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
             local jump = ev and ev:FindFirstChild("BusJump")
             if jump then jump:FireServer() end
-        end
     end
 
     applyHitbox()
