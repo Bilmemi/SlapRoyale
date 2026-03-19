@@ -119,7 +119,7 @@ local function mainLoop()
 
     hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
 
-    -- Rastgele Zıplama (50/50 şansla saniyede bir)
+
     JumpTimer = JumpTimer + Settings.PollRate
     if JumpTimer >= 1 then
         JumpTimer = 0
