@@ -12,10 +12,10 @@ local StuckTimer = 0
 local StrafeAngle = 0
 local FallingTimer = 0
 local JumpTimer = 0
+local HasSlapped = false 
 
 local Settings = {
-    HitboxSize = Vector3.new(10, 10, 10),
-    AttackRange = 20,
+    HitboxSize = Vector3.new(15, 15, 15),
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
@@ -29,12 +29,6 @@ local function setupEnvironment()
     al.Position = Vector3.new(-238, -43, 401)
     al.Size = Vector3.new(150, 30, 150)
     al.Anchored, al.Transparency, al.CanCollide = true, 1, false
-
-    local aa = Instance.new("Part", al)
-    aa.Name = "AntiAcid"
-    aa.Position = Vector3.new(-70, -20, -725)
-    aa.Size = Vector3.new(155, 35, 144)
-    aa.Anchored, aa.Transparency, aa.CanCollide = true, 1, false
 end
 
 local function bypassAntiCheat()
@@ -71,6 +65,20 @@ local function setupCharacter(char)
     hum:GetPropertyChangedSignal("Health"):Connect(function()
         if hum.Health <= 0 then handleDeath() end
     end)
+    
+    char.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then
+            local handle = child:FindFirstChild("Handle") or child:FindFirstChildOfClass("Part")
+            if handle then
+                handle.Touched:Connect(function(hit)
+                    if hit.Name == "HumanoidRootPart" and hit.Parent:FindFirstChild("Humanoid") and hit.Parent ~= char then
+                        HasSlapped = true
+                        task.delay(0.5, function() HasSlapped = false end)
+                    end
+                end)
+            end
+        end
+    end)
 end
 
 if LocalPlayer.Character then setupCharacter(LocalPlayer.Character) end
@@ -99,7 +107,6 @@ local function getBestTarget()
             if hrp and eh.Health > 0 then
                 applyHitbox(p.Character)
                 local state = eh:GetState()
-                -- Sadece yerdeki oyuncular
                 if state ~= Enum.HumanoidStateType.Freefall and state ~= Enum.HumanoidStateType.Jumping and hrp.Velocity.Y < 5 and hrp.Velocity.Y > -5 then
                     local d = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
                     if d < minDistance then minDistance, target = d, p.Character end
@@ -114,62 +121,38 @@ local function mainLoop()
     local char = LocalPlayer.Character
     if not char then return end
     local hum, root = char:FindFirstChildOfClass("Humanoid"), char:FindFirstChild("HumanoidRootPart")
-    local rv = char:FindFirstChild("Ragdolled")
     if not hum or not root or hum.Health <= 0 then return end
-
-    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
-
 
     JumpTimer = JumpTimer + Settings.PollRate
     if JumpTimer >= 1 then
         JumpTimer = 0
-        if math.random(1, 100) <= 50 then
-            hum.Jump = true
-        end
-    end
-
-    local currentTool = char:FindFirstChildOfClass("Tool")
-    if not currentTool then
-        local bpt = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-        if bpt then hum:EquipTool(bpt) end
+        if math.random(1, 100) <= 50 then hum.Jump = true end
     end
 
     local activeTool = char:FindFirstChildOfClass("Tool")
-    if not activeTool or activeTool.Name:lower():find("glider") then 
-        Workspace.Gravity = 196.2
-        return 
+    if not activeTool then
+        local bpt = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if bpt then hum:EquipTool(bpt) end
+        return
     end
-
-    local ir, ifall = (rv and rv.Value == true), (hum:GetState() == Enum.HumanoidStateType.Freefall or root.Velocity.Y < -5)
-    FallingTimer = ifall and (FallingTimer + Settings.PollRate) or 0
-    Workspace.Gravity = (ir or FallingTimer > 1.5) and 1000 or 196.2
-
-    if (root.Position - LastPosition).Magnitude < 0.2 then
-        StuckTimer = StuckTimer + Settings.PollRate
-        if StuckTimer >= Settings.StuckThreshold then hum.Jump, StuckTimer = true, 0 end
-    else StuckTimer = 0 end
-    LastPosition = root.Position
 
     local target = getBestTarget()
     if target and target:FindFirstChild("HumanoidRootPart") then
         local tr = target.HumanoidRootPart
         local dist = (tr.Position - root.Position).Magnitude
 
-        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
+        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.15)
         
-        StrafeAngle = StrafeAngle + 0.08
-        local strafePos = tr.Position + Vector3.new(math.cos(StrafeAngle) * 10, 0, math.sin(StrafeAngle) * 10)
-        
-        if dist > 10 then
+        if dist <= 15 then 
+            activeTool:Activate()
+        end
+
+        if HasSlapped then
+            StrafeAngle = StrafeAngle + 0.1
+            local strafePos = tr.Position + Vector3.new(math.cos(StrafeAngle) * 10, 0, math.sin(StrafeAngle) * 10)
             hum:MoveTo(strafePos)
         else
-            hum:MoveTo(root.Position)
-        end
-        
-        task.wait(0.3)
-
-        if dist <= Settings.AttackRange then
-            activeTool:Activate()
+            hum:MoveTo(tr.Position)
         end
     end
 end
@@ -182,10 +165,6 @@ GuiService.ErrorMessageChanged:Connect(function()
     task.wait(2)
     TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
 end)
-
-if game.PlaceId ~= Settings.MatchmakingID and game.PlaceId ~= Settings.MapID then
-    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
-end
 
 task.spawn(function()
     while task.wait(Settings.PollRate) do pcall(mainLoop) end
