@@ -6,11 +6,15 @@ local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
+local GroupID = 6409334 
 local LastPosition = Vector3.zero
-local StuckTimer, StrafeAngle, FallingTimer, JumpTimer = 0, 0, 0, 0
+local StuckTimer = 0
+local StrafeAngle = 0
+local FallingTimer = 0
+local JumpTimer = 0
 
 local Settings = {
-    HitboxSize = Vector3.new(15, 15, 15),
+    HitboxSize = Vector3.new(15, 15, 15), -- Hitbox size 15 yapıldı
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
@@ -105,6 +109,93 @@ local function getBestTarget()
 end
 
 local function mainLoop()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum, root = char:FindFirstChildOfClass("Humanoid"), char:FindFirstChild("HumanoidRootPart")
+    local rv = char:FindFirstChild("Ragdolled")
+    if not hum or not root or hum.Health <= 0 then return end
+
+    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+
+    JumpTimer = JumpTimer + Settings.PollRate
+    if JumpTimer >= 1 then
+        JumpTimer = 0
+        if math.random(1, 100) <= 50 then hum.Jump = true end
+    end
+
+    local currentTool = char:FindFirstChildOfClass("Tool")
+    if not currentTool then
+        local bpt = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if bpt then hum:EquipTool(bpt) end
+    end
+
+    local activeTool = char:FindFirstChildOfClass("Tool")
+    if not activeTool or activeTool.Name:lower():find("glider") then 
+        Workspace.Gravity = 196.2
+        return 
+    end
+
+    local ir, ifall = (rv and rv.Value == true), (hum:GetState() == Enum.HumanoidStateType.Freefall or root.Velocity.Y < -5)
+    FallingTimer = ifall and (FallingTimer + Settings.PollRate) or 0
+    Workspace.Gravity = (ir or FallingTimer > 1.5) and 1000 or 196.2
+
+    if (root.Position - LastPosition).Magnitude < 0.2 then
+        StuckTimer = StuckTimer + Settings.PollRate
+        if StuckTimer >= Settings.StuckThreshold then hum.Jump, StuckTimer = true, 0 end
+    else StuckTimer = 0 end
+    LastPosition = root.Position
+
+    local target = getBestTarget()
+    if target and target:FindFirstChild("HumanoidRootPart") then
+        local tr = target.HumanoidRootPart
+        local dist = (tr.Position - root.Position).Magnitude
+        local hSize = Settings.HitboxSize.X / 2
+
+        root.CFrame = root.CFrame:Lerp(CFrame.lookAt(root.Position, Vector3.new(tr.Position.X, root.Position.Y, tr.Position.Z)), 0.1)
+        
+        StrafeAngle = StrafeAngle + 0.08
+        local strafePos = tr.Position + Vector3.new(math.cos(StrafeAngle) * hSize, 0, math.sin(StrafeAngle) * hSize)
+        
+        -- Mesafe mantığı: Hitbox kadar yaklaş, içindeyse uzaklaş
+        if dist > hSize then
+            hum:MoveTo(strafePos)
+        elseif dist < (hSize - 2) then
+            local awayPos = root.Position + (root.Position - tr.Position).Unit * 5
+            hum:MoveTo(awayPos)
+        else
+            hum:MoveTo(root.Position)
+        end
+
+        -- Dokunma (Touch) kontrolü ile atak
+        local touching = false
+        for _, part in ipairs(root:GetTouchingParts()) do
+            if part == tr then touching = true break end
+        end
+
+        if touching then
+            activeTool:Activate()
+        end
+    end
+end
+
+autoLoad()
+bypassAntiCheat()
+setupEnvironment()
+
+GuiService.ErrorMessageChanged:Connect(function()
+    task.wait(2)
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+end)
+
+if game.PlaceId ~= Settings.MatchmakingID and game.PlaceId ~= Settings.MapID then
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
+end
+
+task.spawn(function()
+    while task.wait(Settings.PollRate) do pcall(mainLoop) end
+end)
+
+print("Slap Royale Auto-Play Active")local function mainLoop()
     local char = LocalPlayer.Character
     if not char then return end
     local hum, root = char:FindFirstChildOfClass("Humanoid"), char:FindFirstChild("HumanoidRootPart")
