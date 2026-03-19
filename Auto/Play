@@ -1,77 +1,70 @@
---[ OYUN YÜKLENME KONTROLÜ ]--
-if not game:IsLoaded() then 
-    game.Loaded:Wait() 
+--[[
+    SLAP ROYALE | AUTOPLAY SYSTEM (Character Orientation Focused)
+    Optimized for Client-Sided Execution
+]]
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
 end
-print("autoplay") -- Oyun yüklendiği an konsola basar.
+
+print("--- [ AUTOPLAY LOADED ] ---")
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
--- PERSISTENCE (Işınlanma Koruması)
-if queue_on_teleport then
-    queue_on_teleport([[loadstring(game:HttpGet("https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"))()]])
-end
-
+-- CONFIGURATION
 local Settings = {
     HitboxSize = Vector3.new(8, 8, 8),
-    MatchmakingID = 9426795465, 
-    MapID = 9431156611,         
+    MatchmakingID = 9426795465,
+    MapID = 9431156611,
     AttackRange = 12,
-    StuckThreshold = 3
+    ReactionSpeed = 0.03, -- Faster polling for smoother rotation
+    StuckThreshold = 3,
+    ScriptURL = "https://raw.githubusercontent.com/Bilmemi/SlapRoyale/refs/heads/main/Auto/Play"
 }
 
-local LastPos = Vector3.zero
-local StuckTime = 0
+-- PERSISTENCE
+if typeof(queue_on_teleport) == "function" then
+    queue_on_teleport(string.format([[loadstring(game:HttpGet("%s"))()]], Settings.ScriptURL))
+end
+
+-- STATE VARIABLES
+local LastPosition = Vector3.zero
+local StuckTimer = 0
 local StrafeAngle = 0
 
---[ FONKSİYONLAR ]--
-
--- Her şeyi kuşanma (Tool/Handle Garantili)
-local function equipEverything()
+-- UTILITY FUNCTIONS
+local function equipAnything()
     local char = LocalPlayer.Character
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-
-    if not char:FindFirstChildOfClass("Tool") then
-        local tool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
-        if tool then
-            hum:EquipTool(tool)
-        end
+    local tool = char:FindFirstChildOfClass("Tool") or (LocalPlayer:FindFirstChild("Backpack") and LocalPlayer.Backpack:FindFirstChildOfClass("Tool"))
+    
+    if tool and tool.Parent ~= char and hum then
+        hum:EquipTool(tool)
     end
 end
 
--- Agresif Hitbox Sistemi
-local function applyHitbox()
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-            local hum = p.Character:FindFirstChild("Humanoid")
-            if hrp and hum and hum.Health > 0 then
-                hrp.Size = Settings.HitboxSize
-                hrp.Transparency = 0.7
-                hrp.CanCollide = false
-                hrp.Massless = true
-            end
-        end
-    end
+local function teleportToMatchmaking()
+    TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
 end
 
--- Global Hedef Bulucu (Mesafe Sınırı Yok)
-local function getGlobalTarget()
+local function getBestTarget()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
     
     local target, minDistance = nil, math.huge
-    for _, p in pairs(Players:GetPlayers()) do
+    local myPos = char.HumanoidRootPart.Position
+
+    for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") then
-            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
-            if hrp and p.Character.Humanoid.Health > 0 then
-                local dist = (hrp.Position - char.HumanoidRootPart.Position).Magnitude
+            local enemyHrp = p.Character:FindFirstChild("HumanoidRootPart")
+            if enemyHrp and p.Character.Humanoid.Health > 0 then
+                local dist = (enemyHrp.Position - myPos).Magnitude
                 if dist < minDistance then
                     minDistance = dist
                     target = p.Character
@@ -82,25 +75,95 @@ local function getGlobalTarget()
     return target
 end
 
---[ ANA DÖNGÜ ]--
+-- GLOBAL CONNECTIONS
+GuiService.ErrorMessageChanged:Connect(function()
+    task.wait(2)
+    teleportToMatchmaking()
+end)
 
-RunService.Heartbeat:Connect(function()
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") or not char:FindFirstChild("Humanoid") then return end
-    
-    local root = char.HumanoidRootPart
-    local hum = char.Humanoid
-    
-    -- Ölüm ve Konum Kontrolü
-    if hum.Health <= 0 or (game.PlaceId ~= Settings.MatchmakingID and game.PlaceId ~= Settings.MapID) then
-        TeleportService:Teleport(Settings.MatchmakingID, LocalPlayer)
-        return
+LocalPlayer.CharacterAdded:Connect(function(char)
+    local hum = char:WaitForChild("Humanoid")
+    hum.Died:Connect(function()
+        task.wait(3)
+        teleportToMatchmaking()
+    end)
+end)
+
+-- CORE LOOP
+task.spawn(function()
+    while task.wait(Settings.ReactionSpeed) do
+        local char = LocalPlayer.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then continue end
+        
+        local root = char.HumanoidRootPart
+        local hum = char.Humanoid
+        
+        equipAnything()
+        local currentTool = char:FindFirstChildOfClass("Tool")
+        if not currentTool then continue end
+
+        -- Hitbox Expander (Applied Silently)
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local eHrp = p.Character.HumanoidRootPart
+                eHrp.Size = Settings.HitboxSize
+                eHrp.Transparency = 0.7
+                eHrp.CanCollide = false
+            end
+        end
+
+        -- Bus/Jump Event Handling
+        local bus = Workspace:FindFirstChild("Bus") or Workspace:FindFirstChild("BusModel")
+        if bus then
+            local jumpEvent = ReplicatedStorage:FindFirstChild("Events") and (ReplicatedStorage.Events:FindFirstChild("BusJump") or ReplicatedStorage.Events:FindFirstChild("Jump"))
+            if jumpEvent then jumpEvent:FireServer() end
+        end
+
+        -- Stuck Detection
+        if (root.Position - LastPosition).Magnitude < 0.5 then
+            StuckTimer = StuckTimer + Settings.ReactionSpeed
+            if StuckTimer >= Settings.StuckThreshold then
+                hum.Jump = true
+                StuckTimer = 0
+            end
+        else
+            StuckTimer = 0
+        end
+        LastPosition = root.Position
+
+        -- Combat & Navigation
+        local target = getBestTarget()
+        if target and target:FindFirstChild("HumanoidRootPart") then
+            local tHrp = target.HumanoidRootPart
+            local dist = (tHrp.Position - root.Position).Magnitude
+
+            -- CHARACTER FACING LOGIC (Shift-Lock Style)
+            -- This forces the HumanoidRootPart to look at the target's position on the X/Z plane
+            local targetLookPos = Vector3.new(tHrp.Position.X, root.Position.Y, tHrp.Position.Z)
+            root.CFrame = CFrame.lookAt(root.Position, targetLookPos)
+
+            -- Strafing Movement
+            StrafeAngle = StrafeAngle + 0.1
+            local moveOffset = Vector3.new(math.cos(StrafeAngle) * 7, 0, math.sin(StrafeAngle) * 7)
+            hum:MoveTo(tHrp.Position + moveOffset)
+
+            -- Attack
+            if dist <= Settings.AttackRange then
+                currentTool:Activate()
+                if math.random(1, 8) == 1 then hum.Jump = true end
+            end
+        end
     end
+end)
 
-    -- Otobüs Atlayışı
-    for _, obj in pairs(Workspace:GetChildren()) do
-        if obj.Name:lower():find("bus") then
-            local ev = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
+-- MONITORING
+task.spawn(function()
+    while task.wait(5) do
+        if game.PlaceId == Settings.MapID and #Players:GetPlayers() <= 1 then
+            teleportToMatchmaking()
+        end
+    end
+end)            local ev = game:GetService("ReplicatedStorage"):FindFirstChild("Events")
             local jump = ev and ev:FindFirstChild("BusJump")
             if jump then jump:FireServer() end
         end
