@@ -11,11 +11,11 @@ local LastPosition = Vector3.zero
 local StuckTimer = 0
 local StrafeAngle = 0
 local FallingTimer = 0
-local JumpTimer = 0 -- Zıplama takibi için
+local JumpTimer = 0
 
 local Settings = {
     HitboxSize = Vector3.new(10, 10, 10),
-    AttackRange = 20, -- İstediğin gibi 20 yapıldı
+    AttackRange = 20,
     StuckThreshold = 2.5,
     PollRate = 0.05,
     MatchmakingID = 9426795465,
